@@ -33,18 +33,23 @@ function onEditTrigger(e) {
 
   if (row < 2) return; // ヘッダー行の編集は無視
 
-  // --- 0. タスクIDの自動割り当て ---
+  // --- 0. タスクIDの自動割り当てとK列自動入力 ---
   if (sheetName === CONFIG.SHEET_NAME && val !== "") {
     const idRange = sheet.getRange(row, CONFIG.COL_ID);
     if (!idRange.getValue()) {
       const newId = Utilities.getUuid().split('-')[0];
       idRange.setValue(newId);
+      
+      // 同時にK列(完了状態)が空なら「FALSE」を自動入力
+      const statusRange = sheet.getRange(row, CONFIG.COL_STATUS);
+      if (statusRange.getValue() === "") {
+        statusRange.setValue("FALSE");
+      }
     }
   }
 
   // --- 1. タスク完了（K列チェック）時の処理 ---
   if (sheetName === CONFIG.SHEET_NAME && col === CONFIG.COL_STATUS) {
-    // 完了は、チェックボックスまたは文字列"TRUE"どちらでも反応
     if (val === true || String(val).toUpperCase() === "TRUE") {
       if (e.oldValue && String(e.oldValue).toUpperCase() === "TRUE") return;
       processTaskCompletion(ss, sheet, row);
@@ -70,15 +75,21 @@ function processTaskCompletion(ss, sheet, row) {
   const rowData = rowRange.getValues()[0];
   const repeatType = rowData[CONFIG.COL_REPEAT - 1];
 
+  // カレンダー登録とリピート作成を分離し、一方のエラーで止まらないように安全に処理
   // --- カレンダー＆リピート作成 ---
   try {
     syncToCalendarLogic(rowData);
-    
-    if (repeatType && repeatType !== "None") {
-      handleRepeatTask(sheet, rowData, repeatType);
+  } catch (err) {
+    console.error("カレンダー作成エラー: " + err.message);
+  }
+
+  try {
+    const rtTypeStr = String(repeatType || "").trim();
+    if (rtTypeStr !== "" && rtTypeStr.toUpperCase() !== "NONE") {
+      handleRepeatTask(sheet, rowData, rtTypeStr);
     }
   } catch (err) {
-    console.error("カレンダー/リピート作成エラー: " + err.message);
+    console.error("リピート作成エラー: " + err.message);
   }
 
   // --- 完了転記と削除 ---
@@ -87,6 +98,10 @@ function processTaskCompletion(ss, sheet, row) {
     doneSheet.appendRow(rowData);
     
     const lastRowDone = doneSheet.getLastRow();
+    
+    // 完了タスクシートのD列もクリアしてあげる（同様にARRAYFORMULAを置くかもしれないため）
+    doneSheet.getRange(lastRowDone, CONFIG.COL_PROJECT_NAME).clearContent();
+    
     doneSheet.getRange(lastRowDone, CONFIG.COL_DATE_E).setNumberFormat("M/d(ddd)");
     doneSheet.getRange(lastRowDone, CONFIG.COL_DATE_F).setNumberFormat("M/d(ddd)");
     doneSheet.getRange(lastRowDone, CONFIG.COL_START_TIME).setNumberFormat("hh:mm");
@@ -107,15 +122,19 @@ function processTaskCompletion(ss, sheet, row) {
  */
 function handleRepeatTask(sheet, rowData, repeatType) {
   const currentDate = new Date(rowData[CONFIG.COL_DATE_E - 1]);
-  if (isNaN(currentDate.getTime())) return;
+  if (isNaN(currentDate.getTime())) {
+    SpreadsheetApp.getActiveSpreadsheet().toast("【警告】期日(F列)が日付形式ではないか、入力されていないため、次回のタスクが作られませんでした。", "エラー");
+    return;
+  }
 
   const nextDate = new Date(currentDate.getTime());
-  if (repeatType === "Daily") nextDate.setDate(nextDate.getDate() + 1);
-  else if (repeatType === "Weekly") nextDate.setDate(nextDate.getDate() + 7);
-  else if (repeatType === "Monthly") nextDate.setMonth(nextDate.getMonth() + 1);
+  const rType = String(repeatType).toUpperCase();
+  if (rType === "DAILY") nextDate.setDate(nextDate.getDate() + 1);
+  else if (rType === "WEEKLY") nextDate.setDate(nextDate.getDate() + 7);
+  else if (rType === "MONTHLY") nextDate.setMonth(nextDate.getMonth() + 1);
 
   const newRowData = [...rowData];
-  newRowData[CONFIG.COL_ID - 1] = Utilities.getUuid().split('-')[0]; // 新しいIDを発行（コピーさせない）
+  newRowData[CONFIG.COL_ID - 1] = Utilities.getUuid().split('-')[0]; // 新しいIDを発行
   newRowData[CONFIG.COL_PROJECT_NAME - 1] = ""; 
   newRowData[CONFIG.COL_DATE_E - 1] = nextDate; // 期日
   newRowData[CONFIG.COL_DATE_F - 1] = nextDate; // 実施日
