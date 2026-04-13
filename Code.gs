@@ -5,18 +5,20 @@ const CONFIG = {
   SHEET_NAME: "タスク",
   DONE_SHEET_NAME: "完了タスク",
   PROJECT_SHEET_NAME: "プロジェクト",
-  COL_ID: 1,           // A列
-  COL_TYPE: 2,         // B列
-  COL_PROJECT: 3,      // C列
-  COL_PROJECT_NAME: 4, // D列 (今回追加)
-  COL_TASK: 5,         // E列
-  COL_DATE_E: 6,       // F列
-  COL_DATE_F: 7,       // G列
-  COL_START_TIME: 8,   // H列
-  COL_END_TIME: 9,     // I列
-  COL_DESCRIPTION: 10, // J列
-  COL_STATUS: 11,      // K列
-  COL_REPEAT: 12,      // L列
+  
+  // 新しい列配置
+  COL_ID: 1,           // A列: タスクID
+  COL_STATUS: 2,       // B列: 完了
+  COL_REPEAT: 3,       // C列: Repeat
+  COL_TYPE: 4,         // D列: 項目 (Private/Biz)
+  COL_PROJECT: 5,      // E列: プロジェクトID
+  COL_PROJECT_NAME: 6, // F列: プロジェクト名 (ARRAYFORMULA)
+  COL_TASK: 7,         // G列: タスク
+  COL_DATE_E: 8,       // H列: 期日
+  COL_DATE_F: 9,       // I列: 実施日
+  COL_START_TIME: 10,  // J列: 開始時間
+  COL_END_TIME: 11,    // K列: 終了時間
+  COL_DESCRIPTION: 12, // L列: 詳細
 };
 
 /**
@@ -33,14 +35,14 @@ function onEditTrigger(e) {
 
   if (row < 2) return; // ヘッダー行の編集は無視
 
-  // --- 0. タスクIDの自動割り当てとK列自動入力 ---
+  // --- 0. タスクIDの自動割り当てと完了列(B列)自動入力 ---
   if (sheetName === CONFIG.SHEET_NAME && val !== "") {
     const idRange = sheet.getRange(row, CONFIG.COL_ID);
     if (!idRange.getValue()) {
       const newId = Utilities.getUuid().split('-')[0];
       idRange.setValue(newId);
       
-      // 同時にK列(完了状態)が空なら「FALSE」を自動入力
+      // 同時に完了状態が空なら「FALSE」を自動入力
       const statusRange = sheet.getRange(row, CONFIG.COL_STATUS);
       if (statusRange.getValue() === "") {
         statusRange.setValue("FALSE");
@@ -48,7 +50,7 @@ function onEditTrigger(e) {
     }
   }
 
-  // --- 1. タスク完了（K列チェック）時の処理 ---
+  // --- 1. タスク完了（B列チェック）時の処理 ---
   if (sheetName === CONFIG.SHEET_NAME && col === CONFIG.COL_STATUS) {
     if (val === true || String(val).toUpperCase() === "TRUE") {
       if (e.oldValue && String(e.oldValue).toUpperCase() === "TRUE") return;
@@ -71,8 +73,11 @@ function onEditTrigger(e) {
  * タスク完了時のメイン処理
  */
 function processTaskCompletion(ss, sheet, row) {
-  const rowRange = sheet.getRange(row, 1, 1, CONFIG.COL_REPEAT);
+  // A列から一番右の列まで全てのデータを取得する
+  const lastCol = sheet.getLastColumn();
+  const rowRange = sheet.getRange(row, 1, 1, lastCol);
   const rowData = rowRange.getValues()[0];
+  
   const repeatType = rowData[CONFIG.COL_REPEAT - 1];
 
   // カレンダー登録とリピート作成を分離し、一方のエラーで止まらないように安全に処理
@@ -96,11 +101,13 @@ function processTaskCompletion(ss, sheet, row) {
   try {
     const doneSheet = ss.getSheetByName(CONFIG.DONE_SHEET_NAME) || ss.insertSheet(CONFIG.DONE_SHEET_NAME);
     
-    // 【修正箇所】一番下を探して追加する（ARRAYFORMULAの空白に騙されないようにする）
+    // ARRAYFORMULAの影響を受けないように本当の最終行を取得
     const lastRowDone = getRealLastRow(doneSheet) + 1;
+    
+    // 転記の配列の長さを列数に合わせる
     doneSheet.getRange(lastRowDone, 1, 1, rowData.length).setValues([rowData]);
     
-    // 完了タスクシートのD列もクリアしてあげる（同様にARRAYFORMULAを置くかもしれないため）
+    // 完了タスクシートのプロジェクト名の列(F列)もクリアしてあげる
     doneSheet.getRange(lastRowDone, CONFIG.COL_PROJECT_NAME).clearContent();
     
     doneSheet.getRange(lastRowDone, CONFIG.COL_DATE_E).setNumberFormat("M/d(ddd)");
@@ -124,7 +131,7 @@ function processTaskCompletion(ss, sheet, row) {
 function handleRepeatTask(sheet, rowData, repeatType) {
   const currentDate = new Date(rowData[CONFIG.COL_DATE_E - 1]);
   if (isNaN(currentDate.getTime())) {
-    SpreadsheetApp.getActiveSpreadsheet().toast("【警告】期日(F列)が日付形式ではないか、入力されていないため、次回のタスクが作られませんでした。", "エラー");
+    SpreadsheetApp.getActiveSpreadsheet().toast("【警告】期日が日付形式ではないか、入力されていないため、次回のタスクが作られませんでした。", "エラー");
     return;
   }
 
@@ -142,11 +149,11 @@ function handleRepeatTask(sheet, rowData, repeatType) {
   newRowData[CONFIG.COL_DATE_F - 1] = nextDate; // 実施日
   newRowData[CONFIG.COL_STATUS - 1] = "FALSE";  // 完了フラグを外す（文字列のFALSE）
 
-  // 【修正箇所】ARRAYFORMULAの影響を受けないように、本当にデータが有る行の下に追加
+  // 本当にデータが有る行の下に追加
   const targetRow = getRealLastRow(sheet) + 1;
   sheet.getRange(targetRow, 1, 1, newRowData.length).setValues([newRowData]);
   
-  // ARRAYFORMULAの自動展開を妨げないように、追加された行のD列のセルを空っぽに戻します
+  // ARRAYFORMULAの自動展開を妨げないように、追加された行のプロジェクト名(F列)のセルを空っぽに戻します
   sheet.getRange(targetRow, CONFIG.COL_PROJECT_NAME).clearContent();
   
   sheet.getRange(targetRow, CONFIG.COL_DATE_E).setNumberFormat("M/d(ddd)");
@@ -175,9 +182,9 @@ function getRealLastRow(sheet) {
  * カレンダー登録ロジック
  */
 function syncToCalendarLogic(rowData) {
-  const projectName = rowData[CONFIG.COL_PROJECT_NAME - 1]; // CONFIG.COL_PROJECT_NAMEを参照するように修正
+  const projectName = rowData[CONFIG.COL_PROJECT_NAME - 1];
   const taskName = rowData[CONFIG.COL_TASK - 1];
-  const startDate = rowData[CONFIG.COL_DATE_F - 1];
+  const startDate = rowData[CONFIG.COL_DATE_F - 1]; // カレンダー基準日は「実施日」
   const startTime = rowData[CONFIG.COL_START_TIME - 1];
   const endTime = rowData[CONFIG.COL_END_TIME - 1];
   const description = rowData[CONFIG.COL_DESCRIPTION - 1];
@@ -204,7 +211,7 @@ function syncProjectNameChange(ss, oldName, newName) {
     const lastRow = targetSheet.getLastRow();
     if (lastRow < 2) return;
     
-    // プロジェクト名が存在する列(COL_PROJECT_NAME=4列目)を一括置換
+    // プロジェクト名が存在する列の一括置換
     const range = targetSheet.getRange(2, CONFIG.COL_PROJECT_NAME, lastRow - 1, 1);
     const values = range.getValues();
     const updatedValues = values.map(row => [row[0] === oldName ? newName : row[0]]);
@@ -251,6 +258,7 @@ function sortAndFilterTasks(filterKeyword) {
   
   const range = sheet.getRange(2, 1, lastRow - 1, lastCol);
   range.sort([
+    // 今回の構成に伴い、優先順位は B列(完了フラグ) -> H列(期日) -> J列(開始時間) となる
     {column: CONFIG.COL_STATUS, ascending: true}, 
     {column: CONFIG.COL_DATE_E, ascending: true}, 
     {column: CONFIG.COL_START_TIME, ascending: true}  
