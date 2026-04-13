@@ -11,8 +11,8 @@ const CONFIG = {
   COL_STATUS: 2,       // B列: 完了
   COL_REPEAT: 3,       // C列: Repeat
   COL_TYPE: 4,         // D列: 項目 (Private/Biz)
-  COL_PROJECT: 5,      // E列: プロジェクトID
-  COL_PROJECT_NAME: 6, // F列: プロジェクト名 (ARRAYFORMULA)
+  COL_PROJECT_NAME: 5, // E列: プロジェクト名 (ARRAYFORMULA数式)
+  COL_PROJECT: 6,      // F列: プロジェクトID (手入力開始位置)
   COL_TASK: 7,         // G列: タスク
   COL_DATE_E: 8,       // H列: 期日
   COL_DATE_F: 9,       // I列: 実施日
