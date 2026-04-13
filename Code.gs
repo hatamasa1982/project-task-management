@@ -5,16 +5,18 @@ const CONFIG = {
   SHEET_NAME: "タスク",
   DONE_SHEET_NAME: "完了タスク",
   PROJECT_SHEET_NAME: "プロジェクト",
+  COL_ID: 1,           // A列
   COL_TYPE: 2,         // B列
   COL_PROJECT: 3,      // C列
-  COL_TASK: 4,         // D列
-  COL_DATE_E: 5,       // E列
-  COL_DATE_F: 6,       // F列
-  COL_START_TIME: 7,   // G列
-  COL_END_TIME: 8,     // H列
-  COL_DESCRIPTION: 9,  // I列
-  COL_STATUS: 10,      // J列
-  COL_REPEAT: 11,      // K列
+  COL_PROJECT_NAME: 4, // D列 (今回追加)
+  COL_TASK: 5,         // E列
+  COL_DATE_E: 6,       // F列
+  COL_DATE_F: 7,       // G列
+  COL_START_TIME: 8,   // H列
+  COL_END_TIME: 9,     // I列
+  COL_DESCRIPTION: 10, // J列
+  COL_STATUS: 11,      // K列
+  COL_REPEAT: 12,      // L列
 };
 
 /**
@@ -29,11 +31,25 @@ function onEditTrigger(e) {
   const col = range.getColumn();
   const val = range.getValue();
 
-  // --- 1. タスク完了（J列チェック）時の処理 ---
-  if (sheetName === CONFIG.SHEET_NAME && col === CONFIG.COL_STATUS && val === true) {
-    if (e.oldValue && String(e.oldValue).toLowerCase() === "true") return;
-    processTaskCompletion(ss, sheet, row);
-    return;
+  if (row < 2) return; // ヘッダー行の編集は無視
+
+  // --- 0. タスクIDの自動割り当て ---
+  if (sheetName === CONFIG.SHEET_NAME && val !== "") {
+    const idRange = sheet.getRange(row, CONFIG.COL_ID);
+    if (!idRange.getValue()) {
+      const newId = Utilities.getUuid().split('-')[0];
+      idRange.setValue(newId);
+    }
+  }
+
+  // --- 1. タスク完了（K列チェック）時の処理 ---
+  if (sheetName === CONFIG.SHEET_NAME && col === CONFIG.COL_STATUS) {
+    // 完了は、チェックボックスまたは文字列"TRUE"どちらでも反応
+    if (val === true || String(val).toUpperCase() === "TRUE") {
+      if (e.oldValue && String(e.oldValue).toUpperCase() === "TRUE") return;
+      processTaskCompletion(ss, sheet, row);
+      return;
+    }
   }
 
   // --- 2. プロジェクト名変更の同期処理 ---
@@ -71,11 +87,10 @@ function processTaskCompletion(ss, sheet, row) {
     doneSheet.appendRow(rowData);
     
     const lastRowDone = doneSheet.getLastRow();
-    // ★修正：「MM/dd」を「M/d」に変更して、ゼロ埋めをなくしました
-    doneSheet.getRange(lastRowDone, CONFIG.COL_DATE_E).setNumberFormat("M/d(ddd)");   // E列
-    doneSheet.getRange(lastRowDone, CONFIG.COL_DATE_F).setNumberFormat("M/d(ddd)");   // F列
-    doneSheet.getRange(lastRowDone, CONFIG.COL_START_TIME).setNumberFormat("hh:mm");  // G列
-    doneSheet.getRange(lastRowDone, CONFIG.COL_END_TIME).setNumberFormat("hh:mm");    // H列
+    doneSheet.getRange(lastRowDone, CONFIG.COL_DATE_E).setNumberFormat("M/d(ddd)");
+    doneSheet.getRange(lastRowDone, CONFIG.COL_DATE_F).setNumberFormat("M/d(ddd)");
+    doneSheet.getRange(lastRowDone, CONFIG.COL_START_TIME).setNumberFormat("hh:mm");
+    doneSheet.getRange(lastRowDone, CONFIG.COL_END_TIME).setNumberFormat("hh:mm");
 
     SpreadsheetApp.flush();
     sheet.deleteRow(row);
@@ -100,27 +115,27 @@ function handleRepeatTask(sheet, rowData, repeatType) {
   else if (repeatType === "Monthly") nextDate.setMonth(nextDate.getMonth() + 1);
 
   const newRowData = [...rowData];
+  newRowData[CONFIG.COL_ID - 1] = Utilities.getUuid().split('-')[0]; // 新しいIDを発行
   newRowData[CONFIG.COL_DATE_E - 1] = nextDate; // 期日
   newRowData[CONFIG.COL_DATE_F - 1] = nextDate; // 実施日
-  newRowData[CONFIG.COL_STATUS - 1] = false;    // 完了のチェックを外す
+  newRowData[CONFIG.COL_STATUS - 1] = "FALSE";  // 完了フラグを外す（文字列のFALSE）
 
   sheet.appendRow(newRowData);
   
   const lastRow = sheet.getLastRow();
-  sheet.getRange(lastRow, CONFIG.COL_STATUS).insertCheckboxes();
+  // ★削除：チェックボックス挿入は行わず、テキストをセットするだけにしました
   
-  // ★修正：ここも「MM/dd」を「M/d」に変更しました
-  sheet.getRange(lastRow, CONFIG.COL_DATE_E).setNumberFormat("M/d(ddd)");   // E列
-  sheet.getRange(lastRow, CONFIG.COL_DATE_F).setNumberFormat("M/d(ddd)");   // F列
-  sheet.getRange(lastRow, CONFIG.COL_START_TIME).setNumberFormat("hh:mm");  // G列
-  sheet.getRange(lastRow, CONFIG.COL_END_TIME).setNumberFormat("hh:mm");    // H列
+  sheet.getRange(lastRow, CONFIG.COL_DATE_E).setNumberFormat("M/d(ddd)");
+  sheet.getRange(lastRow, CONFIG.COL_DATE_F).setNumberFormat("M/d(ddd)");
+  sheet.getRange(lastRow, CONFIG.COL_START_TIME).setNumberFormat("hh:mm");
+  sheet.getRange(lastRow, CONFIG.COL_END_TIME).setNumberFormat("hh:mm");
 }
 
 /**
  * カレンダー登録ロジック
  */
 function syncToCalendarLogic(rowData) {
-  const projectName = rowData[CONFIG.COL_PROJECT - 1];
+  const projectName = rowData[CONFIG.COL_PROJECT_NAME - 1]; // CONFIG.COL_PROJECT_NAMEを参照するように修正
   const taskName = rowData[CONFIG.COL_TASK - 1];
   const startDate = rowData[CONFIG.COL_DATE_F - 1];
   const startTime = rowData[CONFIG.COL_START_TIME - 1];
@@ -149,7 +164,8 @@ function syncProjectNameChange(ss, oldName, newName) {
     const lastRow = targetSheet.getLastRow();
     if (lastRow < 2) return;
     
-    const range = targetSheet.getRange(2, CONFIG.COL_PROJECT, lastRow - 1, 1);
+    // プロジェクト名が存在する列(COL_PROJECT_NAME=4列目)を一括置換
+    const range = targetSheet.getRange(2, CONFIG.COL_PROJECT_NAME, lastRow - 1, 1);
     const values = range.getValues();
     const updatedValues = values.map(row => [row[0] === oldName ? newName : row[0]]);
     range.setValues(updatedValues);
