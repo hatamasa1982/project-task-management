@@ -132,6 +132,7 @@ function handleRepeatTask(sheet, rowData, repeatType) {
   const rType = String(repeatType).toUpperCase();
   if (rType === "DAILY") nextDate.setDate(nextDate.getDate() + 1);
   else if (rType === "WEEKLY") nextDate.setDate(nextDate.getDate() + 7);
+  else if (rType === "BIWEEKLY") nextDate.setDate(nextDate.getDate() + 14);
   else if (rType === "MONTHLY") nextDate.setMonth(nextDate.getMonth() + 1);
 
   const newRowData = [...rowData];
