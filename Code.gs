@@ -5,20 +5,19 @@ const CONFIG = {
   SHEET_NAME: "タスク",
   DONE_SHEET_NAME: "完了タスク",
   PROJECT_SHEET_NAME: "プロジェクト",
-  
+
   // 新しい列配置
   COL_ID: 1,           // A列: タスクID
   COL_STATUS: 2,       // B列: 完了
   COL_REPEAT: 3,       // C列: Repeat
   COL_TYPE: 4,         // D列: 項目 (Private/Biz)
   COL_PROJECT_NAME: 5, // E列: プロジェクト名 (ARRAYFORMULA数式)
-  COL_PROJECT: 6,      // F列: プロジェクトID (手入力開始位置)
+  COL_PROJECT: 6,      // F列: プロジェクトID
   COL_TASK: 7,         // G列: タスク
   COL_DATE_E: 8,       // H列: 期日
-  COL_DATE_F: 9,       // I列: 実施日
-  COL_START_TIME: 10,  // J列: 開始時間
-  COL_END_TIME: 11,    // K列: 終了時間
-  COL_DESCRIPTION: 12, // L列: 詳細
+  COL_START_TIME: 9,   // I列: 開始時間
+  COL_END_TIME: 10,    // J列: 終了時間
+  COL_DESCRIPTION: 11, // K列: 詳細
 };
 
 /**
@@ -41,19 +40,19 @@ function onEditTrigger(e) {
     if (!idRange.getValue()) {
       const newId = Utilities.getUuid().split('-')[0];
       idRange.setValue(newId);
-      
+
       // 完了状態(B列)が空なら「FALSE」を自動入力
       const statusRange = sheet.getRange(row, CONFIG.COL_STATUS);
       if (statusRange.getValue() === "") {
         statusRange.setValue("FALSE");
       }
-      
+
       // Repeat(C列)が空なら「None」を自動入力
       const repeatRange = sheet.getRange(row, CONFIG.COL_REPEAT);
       if (repeatRange.getValue() === "") {
         repeatRange.setValue("None");
       }
-      
+
       // 項目(D列)が空なら「Private」を自動入力
       const typeRange = sheet.getRange(row, CONFIG.COL_TYPE);
       if (typeRange.getValue() === "") {
@@ -89,7 +88,7 @@ function processTaskCompletion(ss, sheet, row) {
   const lastCol = sheet.getLastColumn();
   const rowRange = sheet.getRange(row, 1, 1, lastCol);
   const rowData = rowRange.getValues()[0];
-  
+
   const repeatType = rowData[CONFIG.COL_REPEAT - 1];
 
   // カレンダー登録とリピート作成を分離し、一方のエラーで止まらないように安全に処理
@@ -112,25 +111,27 @@ function processTaskCompletion(ss, sheet, row) {
   // --- 完了転記と削除 ---
   try {
     const doneSheet = ss.getSheetByName(CONFIG.DONE_SHEET_NAME) || ss.insertSheet(CONFIG.DONE_SHEET_NAME);
-    
+
     // ARRAYFORMULAの影響を受けないように本当の最終行を取得
     const lastRowDone = getRealLastRow(doneSheet) + 1;
-    
+
     // 転記の配列の長さを列数に合わせる
     doneSheet.getRange(lastRowDone, 1, 1, rowData.length).setValues([rowData]);
-    
+
     // 完了タスクシートのプロジェクト名の列(F列)もクリアしてあげる
     doneSheet.getRange(lastRowDone, CONFIG.COL_PROJECT_NAME).clearContent();
-    
+
     doneSheet.getRange(lastRowDone, CONFIG.COL_DATE_E).setNumberFormat("M/d(ddd)");
-    doneSheet.getRange(lastRowDone, CONFIG.COL_DATE_F).setNumberFormat("M/d(ddd)");
     doneSheet.getRange(lastRowDone, CONFIG.COL_START_TIME).setNumberFormat("hh:mm");
     doneSheet.getRange(lastRowDone, CONFIG.COL_END_TIME).setNumberFormat("hh:mm");
 
     SpreadsheetApp.flush();
     sheet.deleteRow(row);
-    
+
     ss.toast("タスクを完了しました。", "処理完了");
+
+    // 完了タスクが移動・削除された後、自動で並び替えを実行する
+    sortAll();
 
   } catch (err) {
     ss.toast("転記/削除エラー: " + err.message, "エラー");
@@ -158,18 +159,20 @@ function handleRepeatTask(sheet, rowData, repeatType) {
   newRowData[CONFIG.COL_ID - 1] = Utilities.getUuid().split('-')[0]; // 新しいIDを発行
   newRowData[CONFIG.COL_PROJECT_NAME - 1] = ""; 
   newRowData[CONFIG.COL_DATE_E - 1] = nextDate; // 期日
-  newRowData[CONFIG.COL_DATE_F - 1] = nextDate; // 実施日
   newRowData[CONFIG.COL_STATUS - 1] = "FALSE";  // 完了フラグを外す（文字列のFALSE）
+
+  // 開始時間と終了時間のコピーは不要のためクリアする
+  newRowData[CONFIG.COL_START_TIME - 1] = ""; 
+  newRowData[CONFIG.COL_END_TIME - 1] = "";
 
   // 本当にデータが有る行の下に追加
   const targetRow = getRealLastRow(sheet) + 1;
   sheet.getRange(targetRow, 1, 1, newRowData.length).setValues([newRowData]);
-  
+
   // ARRAYFORMULAの自動展開を妨げないように、追加された行のプロジェクト名(F列)のセルを空っぽに戻します
   sheet.getRange(targetRow, CONFIG.COL_PROJECT_NAME).clearContent();
-  
+
   sheet.getRange(targetRow, CONFIG.COL_DATE_E).setNumberFormat("M/d(ddd)");
-  sheet.getRange(targetRow, CONFIG.COL_DATE_F).setNumberFormat("M/d(ddd)");
   sheet.getRange(targetRow, CONFIG.COL_START_TIME).setNumberFormat("hh:mm");
   sheet.getRange(targetRow, CONFIG.COL_END_TIME).setNumberFormat("hh:mm");
 }
@@ -180,7 +183,7 @@ function handleRepeatTask(sheet, rowData, repeatType) {
 function getRealLastRow(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 1) return 1;
-  
+
   const values = sheet.getRange(1, 1, lastRow, 1).getValues(); // A列を取得
   for (let i = values.length - 1; i >= 0; i--) {
     if (values[i][0] !== "") {
@@ -196,7 +199,7 @@ function getRealLastRow(sheet) {
 function syncToCalendarLogic(rowData) {
   const projectName = rowData[CONFIG.COL_PROJECT_NAME - 1];
   const taskName = rowData[CONFIG.COL_TASK - 1];
-  const startDate = rowData[CONFIG.COL_DATE_F - 1]; // カレンダー基準日は「実施日」
+  const startDate = rowData[CONFIG.COL_DATE_E - 1]; // カレンダー基準日は「期日」
   const startTime = rowData[CONFIG.COL_START_TIME - 1];
   const endTime = rowData[CONFIG.COL_END_TIME - 1];
   const description = rowData[CONFIG.COL_DESCRIPTION - 1];
@@ -215,14 +218,14 @@ function syncToCalendarLogic(rowData) {
  */
 function syncProjectNameChange(ss, oldName, newName) {
   const sheetsToUpdate = [CONFIG.SHEET_NAME, CONFIG.DONE_SHEET_NAME];
-  
+
   sheetsToUpdate.forEach(name => {
     const targetSheet = ss.getSheetByName(name);
     if (!targetSheet) return;
 
     const lastRow = targetSheet.getLastRow();
     if (lastRow < 2) return;
-    
+
     // プロジェクト名が存在する列の一括置換
     const range = targetSheet.getRange(2, CONFIG.COL_PROJECT_NAME, lastRow - 1, 1);
     const values = range.getValues();
@@ -248,11 +251,8 @@ function combineDateTime(date, time) {
 // --- メニューとソート機能 ---
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
-  ui.createMenu('管理メニュー')
-    .addItem('並び替え（Private）', 'sortPrivate')
-    .addItem('並び替え（Biz）', 'sortBiz')
-    .addSeparator()
-    .addItem('並び替え（全表示）', 'sortAll')
+  ui.createMenu('並び替え')
+    .addItem('全表示', 'sortAll')
     .addToUi();
 }
 
@@ -260,14 +260,14 @@ function sortAndFilterTasks(filterKeyword) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
   if (!sheet) return;
-  
+
   const existingFilter = sheet.getFilter();
   if (existingFilter) existingFilter.remove();
-  
+
   const lastRow = sheet.getLastRow();
   const lastCol = sheet.getLastColumn();
   if (lastRow < 2) return;
-  
+
   const range = sheet.getRange(2, 1, lastRow - 1, lastCol);
   range.sort([
     // 今回の構成に伴い、優先順位は B列(完了フラグ) -> H列(期日) -> J列(開始時間) となる
@@ -275,16 +275,14 @@ function sortAndFilterTasks(filterKeyword) {
     {column: CONFIG.COL_DATE_E, ascending: true}, 
     {column: CONFIG.COL_START_TIME, ascending: true}  
   ]);
-  
+
   const filterRange = sheet.getRange(1, 1, lastRow, lastCol);
   const filter = filterRange.createFilter();
-  
+
   if (filterKeyword) {
     const criteria = SpreadsheetApp.newFilterCriteria().whenTextEqualTo(filterKeyword).build();
     filter.setColumnFilterCriteria(CONFIG.COL_TYPE, criteria);
   }
 }
 
-function sortPrivate() { sortAndFilterTasks("Private"); }
-function sortBiz()     { sortAndFilterTasks("Biz"); }
-function sortAll()     { sortAndFilterTasks(null); }
+function sortAll() { sortAndFilterTasks(null); }
